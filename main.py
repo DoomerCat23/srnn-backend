@@ -3,12 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 import speech_recognition as sr
 import shutil
 import os
+from pydub import AudioSegment
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For security, change this to your GitHub Pages domain
+    allow_origins=["*"],  # Change to your frontend domain before deploying
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -17,19 +18,35 @@ app.add_middleware(
 async def transcribe(file: UploadFile = File(...)):
     temp_dir = "temp"
     os.makedirs(temp_dir, exist_ok=True)
-    file_path = os.path.join(temp_dir, "temp_audio.wav")
 
-    with open(file_path, "wb") as buffer:
+    # Get file extension
+    input_ext = file.filename.split(".")[-1].lower()
+    input_path = os.path.join(temp_dir, f"input.{input_ext}")
+    wav_path = os.path.join(temp_dir, "converted.wav")
+
+    # Save the uploaded file
+    with open(input_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Convert to WAV format
+    try:
+        if input_ext != "wav":
+            audio = AudioSegment.from_file(input_path)
+            audio.export(wav_path, format="wav")
+        else:
+            wav_path = input_path
+    except Exception as e:
+        return {"transcription": f"Error converting audio: {str(e)}"}
+
+    # Transcribe WAV audio
     recognizer = sr.Recognizer()
-    with sr.AudioFile(file_path) as source:
-        audio = recognizer.record(source)
-        try:
-            text = recognizer.recognize_google(audio)
+    try:
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data)
             return {"transcription": text}
-        except:
-            return {"transcription": "Could not transcribe"}
+    except Exception as e:
+        return {"transcription": f"Could not transcribe: {str(e)}"}
 
 @app.websocket("/ws/transcribe/")
 async def websocket_endpoint(websocket: WebSocket):
